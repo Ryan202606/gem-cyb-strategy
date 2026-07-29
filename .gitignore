@@ -1,0 +1,5 @@
+# 交易记录 (敏感信息, 不提交)
+trade_history.csv
+# Python
+__pycache__/
+*.pyc
