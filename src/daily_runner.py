@@ -63,13 +63,13 @@ def cs(df,tracker):
             if tracker.da>=AREA:
                 sp=p*(1-SLIP);val=sp*tracker.sh;tracker.cash+=val-max(val*COMM,5)-val*STAMP
                 ret=(sp-tracker.ep)/tracker.ep*100
-                ls={'date':ds,'action':'SELL','price':round(sp,4),'reason':'area','shares':tracker.sh,'amount':round(val,2),'return_pct':round(ret,2),'details':f'DIF面积={tracker.da:.0f}>={AREA}, {ret:+.1f}%'}
+                ls={'date':ds,'action':'SELL','price':round(sp,4),'reason':'area','shares':tracker.sh,'amount':round(val,2),'return_pct':round(ret,2),'details':'DIF面积='+str(int(tracker.da))+'>='+str(AREA)+', '+format(ret,'+.1f')+'%'}
                 tracker.im=False;tracker.sh=0;tracker.reset('golden')
             tracker.ps=0 if am else tracker.ps+1
             if tracker.ps==1 and amp:
                 sp=p*(1-SLIP);val=sp*tracker.sh;tracker.cash+=val-max(val*COMM,5)-val*STAMP
                 ret=(sp-tracker.ep)/tracker.ep*100
-                ls={'date':ds,'action':'SELL','price':round(sp,4),'reason':'ma','shares':tracker.sh,'amount':round(val,2),'return_pct':round(ret,2),'details':f'{p:.2f}<MA250={ma[i]:.2f}, {ret:+.1f}%'}
+                ls={'date':ds,'action':'SELL','price':round(sp,4),'reason':'ma','shares':tracker.sh,'amount':round(val,2),'return_pct':round(ret,2),'details':format(p,'.2f')+'<MA250='+format(ma[i],'.2f')+', '+format(ret,'+.1f')+'%'}
                 tracker.im=False;tracker.sh=0;tracker.reset('ma_entry')
         else:
             sb=False;br=''
@@ -79,21 +79,21 @@ def cs(df,tracker):
                     if am: tracker.pb+=1
                     else: tracker.pb=0;tracker.vb=False
                     cn=SHORT_C if tracker.vb else LONG_C
-                    if tracker.pb>=cn+1: sb=True;tracker.pb=0;br=f'放量突破{SHORT_C}d' if tracker.vb else f'MA250突破{LONG_C}d';tracker.vb=False;tracker.st='ma_entry'
+                    if tracker.pb>=cn+1: sb=True;tracker.pb=0;br='fangliang'+str(SHORT_C)+'d' if tracker.vb else 'MA250'+str(LONG_C)+'d';tracker.vb=False;tracker.st='ma_entry'
             elif tracker.st=='golden':
                 gc=(d>de and dp<=dep and d<0)
                 if gc and tracker.pg==0: tracker.pg=1
                 if tracker.pg>0:
                     if am: tracker.pg+=1
                     else: tracker.pg=0;tracker.st='ma_entry'
-                    if tracker.pg>=GC_C+2: sb=True;tracker.pg=0;br='水下金叉回补';tracker.st='ma_entry'
+                    if tracker.pg>=GC_C+2: sb=True;tracker.pg=0;br='golden_cross';tracker.st='ma_entry'
             if sb:
                 bp=p*(1+SLIP);raw=int(tracker.cash*0.998/bp/100)*100
                 if raw>=100:
                     val=bp*raw;cost=val+max(val*COMM,5)
                     if cost<=tracker.cash:
                         tracker.cash-=cost;tracker.sh=raw;tracker.im=True;tracker.ep=bp;tracker.pp=bp;tracker.da=0;tracker.ps=0
-                        ls={'date':ds,'action':'BUY','price':round(bp,4),'reason':br,'shares':raw,'amount':round(val,2),'details':f'{bp:.2f}, {raw}股, 剩余{tracker.cash:,.0f}'}
+                        ls={'date':ds,'action':'BUY','price':round(bp,4),'reason':br,'shares':raw,'amount':round(val,2),'details':format(bp,'.2f')+', '+str(raw)+'shares, cash='+format(int(tracker.cash),',')}
     return ls
 
 def gs(df,tracker):
@@ -107,13 +107,13 @@ def lt(sig):
 
 def sh():
     if not os.path.exists(HF): print('No history');return
-    df=pd.read_csv(HF);print(f'History ({len(df)})\n{\"=\"*60}');print(df.tail(20).to_string(index=False))
+    df=pd.read_csv(HF);print('History: '+str(len(df)));print('='*60);print(df.tail(20).to_string(index=False))
 
 def main():
     import argparse
     p=argparse.ArgumentParser();p.add_argument('--trade',action='store_true');p.add_argument('--history',action='store_true');args=p.parse_args()
     if args.history: sh();return
-    print(f'[{datetime.now().strftime(\"%H:%M:%S\")}] Loading...')
+    print('['+datetime.now().strftime('%H:%M:%S')+'] Loading...')
     df=fd(400)
     if len(df)==0: print('No data');return
     df=ci(df);tracker=PT()
@@ -128,18 +128,18 @@ def main():
                     if pp2>tracker.pp: tracker.pp=pp2
             tracker.st='ma_entry'
     sig=cs(df,tracker);st=gs(df,tracker)
-    print(f'\n{\"=\"*50}\n  创业板 量化策略 {datetime.now().strftime(\"%Y-%m-%d %H:%M\")}\n{\"=\"*50}')
-    print(f'  {st[\"date\"]} close={st[\"close\"]:.2f} MA250={st[\"MA250\"]:.2f} above={\"Y\" if st[\"am\"] else \"N\"}')
-    print(f'  DIF={st[\"DIF\"]:.1f} DEA={st[\"DEA\"]:.1f} area={st[\"da\"]:.0f}/{AREA}')
-    print(f'  Position={\"IN\" if st[\"im\"] else \"OUT\"} state={st[\"st\"]}')
+    print('='*50);print('  GEM CYB Strategy  '+datetime.now().strftime('%Y-%m-%d %H:%M'));print('='*50)
+    print('  '+st['date']+' close='+format(st['close'],'.2f')+' MA250='+format(st['MA250'],'.2f')+' above='+('Y' if st['am'] else 'N'))
+    print('  DIF='+format(st['DIF'],'.1f')+' DEA='+format(st['DEA'],'.1f')+' area='+str(int(st['da']))+'/'+str(AREA))
+    print('  Position='+('IN' if st['im'] else 'OUT')+' state='+st['st'])
     if st['im']:
         dd=(st['close']-st['pp'])/st['pp']*100 if st['pp']>0 else 0
-        print(f'  Entry={st[\"ep\"]:.2f} Peak={st[\"pp\"]:.2f} DD={dd:+.1f}% Value=¥{st[\"pv\"]:,.0f}')
-    print(f'  Total=¥{st[\"tv\"]:,.0f}')
+        print('  Entry='+format(st['ep'],'.2f')+' Peak='+format(st['pp'],'.2f')+' DD='+format(dd,'+.1f')+'% Value=Y'+format(int(st['pv']),','))
+    print('  Total=Y'+format(int(st['tv']),','))
     today=datetime.now().strftime('%Y-%m-%d')
     if sig.get('action') in ('BUY','SELL') and sig.get('date','')!=today: sig['action']='HOLD';sig['reason']='holding' if st['im'] else 'waiting'
-    print(f'\\n  >>> {sig[\"action\"]} | {sig[\"reason\"]}')
-    if sig.get('details') and sig.get('date','')==today: print(f'  >>> {sig[\"details\"]}')
-    if args.trade and sig['action'] in ('BUY','SELL'): lt(sig);print(f'  [Logged]')
+    print('\n  >>> '+sig['action']+' | '+sig['reason'])
+    if sig.get('details') and sig.get('date','')==today: print('  >>> '+sig['details'])
+    if args.trade and sig['action'] in ('BUY','SELL'): lt(sig);print('  [Logged]')
 
 if __name__=='__main__': main()
