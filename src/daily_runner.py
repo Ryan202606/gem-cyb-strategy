@@ -164,7 +164,8 @@ def main():
 
     today=datetime.now().strftime('%Y-%m-%d')
     act=sig.get('action','HOLD')
-    if act in ('BUY','SELL') and sig.get('date','')!=today: act='HOLD'
+    if act in ('BUY','SELL') and sig.get('date','')!=today:
+        act='HOLD'; sig['reason']='持仓中' if st['im'] else '等待信号'
 
     rmap={'BUY':'买入','SELL':'卖出','HOLD':'持有','WAIT':'等待'}
     print('')
