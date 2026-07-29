@@ -1,7 +1,7 @@
 name: gem-cyb-strategy
 on:
   schedule:
-    - cron: "0 12 * * *"
+    - cron: 0 12 * * *
   push:
     branches: [master]
   workflow_dispatch:
@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: 3.11
       - run: pip install -r requirements.txt
       - run: cd src && python daily_runner.py --trade 2>&1 | tee ../output.txt
       - run: cat output.txt
