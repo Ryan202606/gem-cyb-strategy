@@ -1,4 +1,4 @@
-name: 创业板量化策略
+name: gem-cyb-strategy
 on:
   schedule:
     - cron: "0 12 * * *"
@@ -6,7 +6,7 @@ on:
     branches: [master]
   workflow_dispatch:
 jobs:
-  run-strategy:
+  run:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,7 +22,7 @@ jobs:
           server_port: 587
           username: ${{ secrets.QQ_EMAIL }}
           password: ${{ secrets.QQ_SMTP_CODE }}
-          subject: "[cyb] #${{ github.run_number }}"
+          subject: "[创业板]每日信号"
           to: 1134230834@qq.com
           from: ${{ secrets.QQ_EMAIL }}
           body: file://output.txt
