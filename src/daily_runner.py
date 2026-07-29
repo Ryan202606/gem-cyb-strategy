@@ -154,7 +154,7 @@ def main():
         print('')
         print('  [当前持仓]')
         print('  入场价: '+format(st['ep'],'.2f')+'  现价: '+format(st['close'],'.2f'))
-        print('  最高价: '+format(st['pp'],'.2f')+'  回撤: '+format(dd,'+.1f')+'% (止损线 -8%)')
+        print('  最高价: '+format(st['pp'],'.2f')+'  回撤: '+format(dd,'+.1f')+'% (无止损)')
         print('  持仓市值: '+format(int(st['pv']),',')+'  总资产: '+format(int(st['tv']),','))
     else:
         print('')
