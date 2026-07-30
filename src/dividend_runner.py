@@ -12,12 +12,21 @@ if not hasattr(pd.DataFrame,'append'): pd.DataFrame.append=lambda s,o,**kw:pd.co
 SYMBOL='sh510880';NAME='红利ETF';COMM=0.00015;STAMP=0;SLIP=0
 MA_PERIOD=250;SWING_PCT=1.0;STOP_LOSS=0.05
 SCRIPT_DIR=os.path.dirname(os.path.abspath(__file__))
-DATA_FILE=os.path.join(SCRIPT_DIR,'510880.csv')
 HF=os.path.join(os.path.dirname(SCRIPT_DIR),'dividend_trade_history.csv')
 
 def load_data():
-    """加载510880数据并计算指标"""
-    df=pd.read_csv(DATA_FILE);df['date']=pd.to_datetime(df['date'])
+    """加载510880数据(优先在线,失败则用本地CSV)"""
+    df=None
+    try:
+        import efinance as ef
+        df=ef.stock.get_quote_history('510880',beg='20100101',end=datetime.now().strftime('%Y%m%d'))
+        df=df.rename(columns={'日期':'date','开盘':'open','最高':'high','最低':'low','收盘':'close','成交量':'volume','成交额':'amount'})
+    except: pass
+    if df is None or len(df)<500:
+        csv_path=os.path.join(SCRIPT_DIR,'510880.csv')
+        if os.path.exists(csv_path): df=pd.read_csv(csv_path)
+    if df is None or len(df)==0: return pd.DataFrame()
+    df['date']=pd.to_datetime(df['date'])
     for c in ['open','high','low','close','volume','amount']:
         if c in df.columns: df[c]=pd.to_numeric(df[c],errors='coerce')
     df=df.dropna(subset=['close']).sort_values('date').reset_index(drop=True)
