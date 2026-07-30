@@ -15,10 +15,10 @@ jobs:
           python-version: 3.11
       - run: pip install -r requirements.txt
       - run: |
-          echo "=== 创业板混合策略 ===" > output.txt
+          echo "[CYB]" > output.txt
           cd src && python daily_runner.py --trade >> ../output.txt 2>&1
           echo "" >> ../output.txt
-          echo "=== 红利ETF MACD波段策略 ===" >> ../output.txt
+          echo "[DIV]" >> ../output.txt
           python dividend_runner.py --trade >> ../output.txt 2>&1
       - run: cat output.txt
       - uses: dawidd6/action-send-mail@v3
@@ -27,7 +27,7 @@ jobs:
           server_port: 587
           username: ${{ secrets.QQ_EMAIL }}
           password: ${{ secrets.QQ_SMTP_CODE }}
-          subject: "[量化策略] 每日信号"
+          subject: "[Q] 每日信号"
           to: 1134230834@qq.com
           from: ${{ secrets.QQ_EMAIL }}
           body: file://output.txt
