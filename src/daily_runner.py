@@ -49,8 +49,6 @@ def cs(df,t):
     for i in range(n):
         if not np.isnan(ma[i]): si=i;break
     cs2=max(si+1,n-30) if t.im else max(1,si)
-    a_map={'BUY':'买入','SELL':'卖出','HOLD':'持有'}
-    r_map={'area':'面积止盈','ma':'跌破年线','vol':'放量突破','ma_break':'年线突破','gc':'金叉回补'}
     ls={'date':str(dates[-1])[:10],'action':'持有','reason':'持仓中' if t.im else '等待信号'}
     for i in range(cs2,n):
         p=float(close[i]);ds=str(dates[i])[:10]
@@ -127,16 +125,16 @@ def main():
     today=datetime.now().strftime('%Y-%m-%d')
     act=sig.get('action','持有')
     if act in ('买入','卖出') and sig.get('date','')!=today: act='持有';sig['reason']='持仓中' if st['im'] else '等待信号'
-    line=act+' | '+sig.get('reason','-')
-    if act in ('买入','卖出'): line+=' | '+str(sig.get('price','?'))+' | '+str(sig.get('shares','?'))+'股'
-    if sig.get('ret') is not None: line+=' | '+format(sig['ret'],'+.2f')+'%'
-    print(line)
+    # Table format: 创业板 持仓中 卖出 跌破年线
+    status='持仓中' if st['im'] else '空仓'
+    advice=act if act!='持有' else '无操作'
+    reason=sig.get('reason','-')
+    print('创业板  '+status+'  '+advice+'  '+reason)
+    # Details
     if st['im']:
         dd=(st['close']-st['pp'])/st['pp']*100 if st['pp']>0 else 0
-        print('持仓 | '+format(st['ep'],'.2f')+'->'+format(st['close'],'.2f')+' | 回撤'+format(dd,'+.1f')+'% | 市值'+format(int(st['pv']),','))
-    else:
-        print('空仓 | 资产'+format(int(st['tv']),','))
-    print('收盘='+format(st['close'],'.2f')+' 年线='+format(st['MA250'],'.2f')+' DIF='+format(st['DIF'],'.1f')+' 面积='+str(int(st['da']))+'/'+str(AREA))
+        print('  入场'+format(st['ep'],'.2f')+' 现价'+format(st['close'],'.2f')+' 回撤'+format(dd,'+.1f')+'% 市值'+format(int(st['pv']),','))
+    print('  资产'+format(int(st['tv']),',')+' 收盘='+format(st['close'],'.2f')+' 年线='+format(st['MA250'],'.2f')+' DIF='+format(st['DIF'],'.1f')+' 面积='+str(int(st['da']))+'/'+str(AREA))
     if args.trade and sig['action'] in ('买入','卖出'): lt(sig)
 
 if __name__=='__main__': main()
