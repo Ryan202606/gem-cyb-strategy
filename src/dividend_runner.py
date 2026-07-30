@@ -40,12 +40,10 @@ def identify_clusters(macd_vals):
     for i in range(1,len(macd_vals)):
         pc='green' if macd_vals[i-1]<0 else 'red';cc='green' if macd_vals[i]<0 else 'red'
         if cc!=pc:
-            clr='green' if macd_vals[i-1]<0 else 'red'
-            area=np.abs(macd_vals[cs:i]).sum()
+            clr='green' if macd_vals[i-1]<0 else 'red';area=np.abs(macd_vals[cs:i]).sum()
             clusters.append({'color':clr,'start':cs,'end':i-1,'count':i-cs,'area':area});cs=i
     if cs<len(macd_vals):
-        clr='green' if macd_vals[cs]<0 else 'red'
-        area=np.abs(macd_vals[cs:]).sum()
+        clr='green' if macd_vals[cs]<0 else 'red';area=np.abs(macd_vals[cs:]).sum()
         clusters.append({'color':clr,'start':cs,'end':len(macd_vals)-1,'count':len(macd_vals)-cs,'area':area})
     return clusters
 
@@ -133,8 +131,7 @@ def main():
         p=float(close[i]);ds=str(df['date'].iloc[i])[:10];am=close[i]>ma[i];amp=i>0 and close[i-1]>ma[i-1]
         if not pos['in_base']:
             if not amp and am:
-                pos['in_base']=True;bp=p*(1+SLIP)
-                base_cash=100000;raw=int(base_cash/bp/100)*100
+                pos['in_base']=True;bp=p*(1+SLIP);base_cash=100000;raw=int(base_cash/bp/100)*100
                 if raw>=100:
                     val=bp*raw;cost=val+max(val*COMM,5)
                     if cost<=pos['cash']: pos['cash']-=cost;pos['base']=raw;pos['entry_price']=bp;pos['peak']=bp;pos['gc_available']=False
@@ -150,8 +147,8 @@ def main():
         if pos['swing_mode']:
             ok2,reason2,exit_p=check_short(df,i,clusters)
             if ok2:
-                sp=exit_p*(1-SLIP);val=sp*pos['swing'];cash_add=val-max(val*COMM,5)
-                pos['cash']+=cash_add;ret=(sp-pos['swing_entry'])/pos['swing_entry']*100
+                sp=exit_p*(1-SLIP);val=sp*pos['swing'];cash_add=val-max(val*COMM,5);pos['cash']+=cash_add
+                ret=(sp-pos['swing_entry'])/pos['swing_entry']*100
                 sig={'date':ds,'action':'卖出','price':round(sp,4),'reason':'红柱止盈','shares':pos['swing'],'amount':round(val,2),'ret':round(ret,2)}
                 pos['swing']=0;pos['swing_mode']=False;pos['gc_available']=True
         if pos['in_base'] and i>0 and close[i-1]>ma[i-1] and not am:
@@ -163,15 +160,21 @@ def main():
     today=datetime.now().strftime('%Y-%m-%d')
     act=sig.get('action','持有')
     if act in ('买入','卖出') and sig.get('date','')!=today: act='持有';sig['reason']='监控中'
-    # Table format
+    # Summary
     status='持仓中' if st['base']>0 else '空仓'
     advice=act if act!='持有' else '无操作'
     reason=sig.get('reason','-')
-    print('红利    '+status+'  '+advice+'  '+reason)
+    print('红利-----'+status+'-----'+advice+'-----'+reason)
     if st['base']>0:
         dd_val=(st['close']-pos.get('entry_price',st['close']))/pos.get('entry_price',st['close'])*100
-        print('  底仓'+format(int(st['base']),',')+'股 波段'+format(int(st['swing']),',')+'股 回撤'+format(dd_val,'+.1f')+'%')
-    print('  资产'+format(int(st['tv']),',')+' 收盘='+format(st['close'],'.2f')+' 年线='+format(st['MA250'],'.2f')+' DIF='+format(st['DIF'],'.4f')+' MACD='+format(st['MACD'],'.4f'))
+        print('  底仓: '+format(int(st['base']),',')+'股')
+        print('  波段: '+format(int(st['swing']),',')+'股')
+        print('  回撤: '+format(dd_val,'+.2f')+'%')
+    print('  资产: '+format(int(st['tv']),','))
+    print('  收盘: '+format(st['close'],'.2f'))
+    print('  年线: '+format(st['MA250'],'.2f'))
+    print('  DIF: '+format(st['DIF'],'.4f'))
+    print('  MACD: '+format(st['MACD'],'.4f'))
     if args.trade and act in ('买入','卖出'): lt2(sig)
 
 if __name__=='__main__': main()
