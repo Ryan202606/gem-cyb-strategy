@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import sys,io,os,logging
+import sys,io,os
 from datetime import datetime,timedelta
 if sys.stdout.encoding!='utf-8': sys.stdout=io.TextIOWrapper(sys.stdout.buffer,encoding='utf-8',errors='replace')
 import baostock as bs,pandas as pd,numpy as np
 if not hasattr(pd.DataFrame,'append'): pd.DataFrame.append=lambda s,o,**kw:pd.concat([s,o],ignore_index=kw.get('ignore_index',False))
-logging.getLogger('baostock').setLevel(logging.ERROR)
 AREA=2000;LONG_C=14;SHORT_C=1;GC_C=0;VP=150;VM=1.8
 COMM=0.0003;STAMP=0.0005;SLIP=0.001
 SYMBOL='sz.399006'
@@ -13,9 +12,14 @@ SCRIPT_DIR=os.path.dirname(os.path.abspath(__file__))
 HF=os.path.join(os.path.dirname(SCRIPT_DIR),'trade_history.csv')
 
 def fd(days=400):
-    lg=bs.login();end=datetime.now();start=end-timedelta(days=days)
+    import os as _os
+    old_stdout=sys.stdout;sys.stdout=open(_os.devnull,'w')
+    lg=bs.login()
+    sys.stdout=old_stdout
+    end=datetime.now();start=end-timedelta(days=days)
     rs=bs.query_history_k_data_plus(SYMBOL,'date,open,high,low,close,volume,amount',start_date=start.strftime('%Y-%m-%d'),end_date=end.strftime('%Y-%m-%d'),frequency='d',adjustflag='1')
-    df=rs.get_data() if rs and rs.error_code=='0' else pd.DataFrame();bs.logout()
+    df=rs.get_data() if rs and rs.error_code=='0' else pd.DataFrame()
+    sys.stdout=open(_os.devnull,'w');bs.logout();sys.stdout=old_stdout
     if len(df)==0: return df
     for c in ['open','high','low','close','volume','amount']: df[c]=pd.to_numeric(df[c],errors='coerce')
     df['date']=pd.to_datetime(df['date']);df=df.dropna(subset=['close']).sort_values('date').reset_index(drop=True)
