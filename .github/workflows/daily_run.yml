@@ -1,7 +1,7 @@
 name: gem-cyb-strategy
 on:
   schedule:
-    - cron: 0 12 * * *
+    - cron: 0 12 * * 1-5
   push:
     branches: [master]
   workflow_dispatch:
