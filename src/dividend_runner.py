@@ -130,8 +130,6 @@ def main():
         else: print('无历史')
         return
 
-    print(datetime.now().strftime('%Y-%m-%d %H:%M')+'  '+NAME+' MACD波段策略')
-    print('数据加载中...')
     df=load_data()
     if len(df)==0: print('数据加载失败');return
 
