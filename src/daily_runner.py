@@ -12,14 +12,12 @@ SCRIPT_DIR=os.path.dirname(os.path.abspath(__file__))
 HF=os.path.join(os.path.dirname(SCRIPT_DIR),'trade_history.csv')
 
 def fd(days=400):
-    import os as _os
-    old_stdout=sys.stdout;sys.stdout=open(_os.devnull,'w')
-    lg=bs.login()
-    sys.stdout=old_stdout
+    dn=os.devnull;old=sys.stdout;sys.stdout=open(dn,'w')
+    lg=bs.login();sys.stdout=old
     end=datetime.now();start=end-timedelta(days=days)
     rs=bs.query_history_k_data_plus(SYMBOL,'date,open,high,low,close,volume,amount',start_date=start.strftime('%Y-%m-%d'),end_date=end.strftime('%Y-%m-%d'),frequency='d',adjustflag='1')
     df=rs.get_data() if rs and rs.error_code=='0' else pd.DataFrame()
-    sys.stdout=open(_os.devnull,'w');bs.logout();sys.stdout=old_stdout
+    sys.stdout=open(dn,'w');bs.logout();sys.stdout=old
     if len(df)==0: return df
     for c in ['open','high','low','close','volume','amount']: df[c]=pd.to_numeric(df[c],errors='coerce')
     df['date']=pd.to_datetime(df['date']);df=df.dropna(subset=['close']).sort_values('date').reset_index(drop=True)
@@ -51,7 +49,9 @@ def cs(df,t):
     for i in range(n):
         if not np.isnan(ma[i]): si=i;break
     cs2=max(si+1,n-30) if t.im else max(1,si)
-    ls={'date':str(dates[-1])[:10],'action':'HOLD','reason':'holding' if t.im else 'waiting'}
+    a_map={'BUY':'买入','SELL':'卖出','HOLD':'持有'}
+    r_map={'area':'面积止盈','ma':'跌破年线','vol':'放量突破','ma_break':'年线突破','gc':'金叉回补'}
+    ls={'date':str(dates[-1])[:10],'action':'持有','reason':'持仓中' if t.im else '等待信号'}
     for i in range(cs2,n):
         p=float(close[i]);ds=str(dates[i])[:10]
         d=dif[i];de=dea[i];dp=dif[i-1];dep=dea[i-1];am=close[i]>ma[i];amp=close[i-1]>ma[i-1];v=vol[i];av2=av[i]
@@ -62,13 +62,13 @@ def cs(df,t):
             if t.da>=AREA:
                 sp=p*(1-SLIP);val=sp*t.sh;t.cash+=val-max(val*COMM,5)-val*STAMP
                 ret=(sp-t.ep)/t.ep*100
-                ls={'date':ds,'action':'SELL','price':round(sp,4),'reason':'area','shares':t.sh,'amount':round(val,2),'ret':round(ret,2)}
+                ls={'date':ds,'action':'卖出','price':round(sp,4),'reason':'面积止盈','shares':t.sh,'amount':round(val,2),'ret':round(ret,2)}
                 t.im=False;t.sh=0;t.reset('golden')
             t.ps=0 if am else t.ps+1
             if t.ps==1 and amp:
                 sp=p*(1-SLIP);val=sp*t.sh;t.cash+=val-max(val*COMM,5)-val*STAMP
                 ret=(sp-t.ep)/t.ep*100
-                ls={'date':ds,'action':'SELL','price':round(sp,4),'reason':'ma','shares':t.sh,'amount':round(val,2),'ret':round(ret,2)}
+                ls={'date':ds,'action':'卖出','price':round(sp,4),'reason':'跌破年线','shares':t.sh,'amount':round(val,2),'ret':round(ret,2)}
                 t.im=False;t.sh=0;t.reset('ma_entry')
         else:
             sb=False;br=''
@@ -78,20 +78,20 @@ def cs(df,t):
                     if am: t.pb+=1
                     else: t.pb=0;t.vb=False
                     cn=SHORT_C if t.vb else LONG_C
-                    if t.pb>=cn+1: sb=True;t.pb=0;br='vol' if t.vb else 'ma';t.vb=False;t.st='ma_entry'
+                    if t.pb>=cn+1: sb=True;t.pb=0;br='放量突破' if t.vb else '年线突破';t.vb=False;t.st='ma_entry'
             elif t.st=='golden':
                 gc=(d>de and dp<=dep and d<0)
                 if gc and t.pg==0: t.pg=1
                 if t.pg>0:
                     if am: t.pg+=1
                     else: t.pg=0;t.st='ma_entry'
-                    if t.pg>=GC_C+2: sb=True;t.pg=0;br='gc';t.st='ma_entry'
+                    if t.pg>=GC_C+2: sb=True;t.pg=0;br='金叉回补';t.st='ma_entry'
             if sb:
                 bp=p*(1+SLIP);raw=int(t.cash*0.998/bp/100)*100
                 if raw>=100:
                     val=bp*raw;cost=val+max(val*COMM,5)
                     if cost<=t.cash: t.cash-=cost;t.sh=raw;t.im=True;t.ep=bp;t.pp=bp;t.da=0;t.ps=0
-                    ls={'date':ds,'action':'BUY','price':round(bp,4),'reason':br,'shares':raw,'amount':round(val,2)}
+                    ls={'date':ds,'action':'买入','price':round(bp,4),'reason':br,'shares':raw,'amount':round(val,2)}
     return ls
 
 def gs(df,t):
@@ -107,14 +107,14 @@ def main():
     import argparse
     p=argparse.ArgumentParser();p.add_argument('--trade',action='store_true');p.add_argument('--history',action='store_true');args=p.parse_args()
     if args.history:
-        if os.path.exists(HF): df=pd.read_csv(HF);print('CYB history('+str(len(df))+'):');print(df.tail(20).to_string(index=False))
-        else: print('no history')
+        if os.path.exists(HF): df=pd.read_csv(HF);print('创业板交易记录('+str(len(df))+'条):');print(df.tail(20).to_string(index=False))
+        else: print('无记录')
         return
     df=fd(400)
     if len(df)==0: return
     df=ci(df);t=PT()
     if args.trade and os.path.exists(HF):
-        hist=pd.read_csv(HF);buys=hist[hist['action']=='BUY'];sells=hist[hist['action']=='SELL']
+        hist=pd.read_csv(HF);buys=hist[hist['action']=='买入'];sells=hist[hist['action']=='卖出']
         if len(buys)>len(sells):
             lb=buys.iloc[-1];t.im=True;t.ep=lb['price'];t.sh=lb['shares'];t.pp=lb['price']
             bd2=pd.Timestamp(lb['sig_date'])
@@ -125,18 +125,18 @@ def main():
             t.st='ma_entry'
     sig=cs(df,t);st=gs(df,t)
     today=datetime.now().strftime('%Y-%m-%d')
-    act=sig.get('action','HOLD')
-    if act in ('BUY','SELL') and sig.get('date','')!=today: act='HOLD';sig['reason']='holding' if st['im'] else 'waiting'
+    act=sig.get('action','持有')
+    if act in ('买入','卖出') and sig.get('date','')!=today: act='持有';sig['reason']='持仓中' if st['im'] else '等待信号'
     line=act+' | '+sig.get('reason','-')
-    if act in ('BUY','SELL'): line+=' | '+str(sig.get('price','?'))+' | '+str(sig.get('shares','?'))+'sh'
+    if act in ('买入','卖出'): line+=' | '+str(sig.get('price','?'))+' | '+str(sig.get('shares','?'))+'股'
     if sig.get('ret') is not None: line+=' | '+format(sig['ret'],'+.2f')+'%'
     print(line)
     if st['im']:
         dd=(st['close']-st['pp'])/st['pp']*100 if st['pp']>0 else 0
-        print('HOLD | '+format(st['ep'],'.2f')+'->'+format(st['close'],'.2f')+' | DD'+format(dd,'+.1f')+'% | '+format(int(st['pv']),','))
+        print('持仓 | '+format(st['ep'],'.2f')+'->'+format(st['close'],'.2f')+' | 回撤'+format(dd,'+.1f')+'% | 市值'+format(int(st['pv']),','))
     else:
-        print('OUT | '+format(int(st['tv']),','))
-    print('close='+format(st['close'],'.2f')+' MA250='+format(st['MA250'],'.2f')+' DIF='+format(st['DIF'],'.1f')+' area='+str(int(st['da']))+'/'+str(AREA))
-    if args.trade and sig['action'] in ('BUY','SELL'): lt(sig)
+        print('空仓 | 资产'+format(int(st['tv']),','))
+    print('收盘='+format(st['close'],'.2f')+' 年线='+format(st['MA250'],'.2f')+' DIF='+format(st['DIF'],'.1f')+' 面积='+str(int(st['da']))+'/'+str(AREA))
+    if args.trade and sig['action'] in ('买入','卖出'): lt(sig)
 
 if __name__=='__main__': main()
