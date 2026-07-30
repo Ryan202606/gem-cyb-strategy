@@ -125,16 +125,23 @@ def main():
     today=datetime.now().strftime('%Y-%m-%d')
     act=sig.get('action','持有')
     if act in ('买入','卖出') and sig.get('date','')!=today: act='持有';sig['reason']='持仓中' if st['im'] else '等待信号'
-    # Table format: 创业板 持仓中 卖出 跌破年线
+    # Summary line
     status='持仓中' if st['im'] else '空仓'
     advice=act if act!='持有' else '无操作'
     reason=sig.get('reason','-')
-    print('创业板  '+status+'  '+advice+'  '+reason)
-    # Details
+    print('创业板-----'+status+'-----'+advice+'-----'+reason)
+    # Details, one per line
     if st['im']:
         dd=(st['close']-st['pp'])/st['pp']*100 if st['pp']>0 else 0
-        print('  入场'+format(st['ep'],'.2f')+' 现价'+format(st['close'],'.2f')+' 回撤'+format(dd,'+.1f')+'% 市值'+format(int(st['pv']),','))
-    print('  资产'+format(int(st['tv']),',')+' 收盘='+format(st['close'],'.2f')+' 年线='+format(st['MA250'],'.2f')+' DIF='+format(st['DIF'],'.1f')+' 面积='+str(int(st['da']))+'/'+str(AREA))
+        print('  入场: '+format(st['ep'],'.2f'))
+        print('  现价: '+format(st['close'],'.2f'))
+        print('  回撤: '+format(dd,'+.2f')+'%')
+        print('  市值: '+format(int(st['pv']),','))
+    print('  资产: '+format(int(st['tv']),','))
+    print('  收盘: '+format(st['close'],'.2f'))
+    print('  年线: '+format(st['MA250'],'.2f'))
+    print('  DIF: '+format(st['DIF'],'.2f'))
+    print('  面积: '+str(int(st['da']))+'/'+str(AREA))
     if args.trade and sig['action'] in ('买入','卖出'): lt(sig)
 
 if __name__=='__main__': main()
