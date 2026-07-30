@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""510880 红利ETF MACD波段 — 每日运行"""
+"""510880 红利ETF MACD波段"""
 import sys,io,os
 from datetime import datetime,timedelta
 if sys.stdout.encoding!='utf-8': sys.stdout=io.TextIOWrapper(sys.stdout.buffer,encoding='utf-8',errors='replace')
 import pandas as pd,numpy as np
 if not hasattr(pd.DataFrame,'append'): pd.DataFrame.append=lambda s,o,**kw:pd.concat([s,o],ignore_index=kw.get('ignore_index',False))
-SYMBOL='sh510880';NAME='红利ETF';COMM=0.00015;STAMP=0;SLIP=0
+COMM=0.00015;STAMP=0;SLIP=0
 SCRIPT_DIR=os.path.dirname(os.path.abspath(__file__))
 HF=os.path.join(os.path.dirname(SCRIPT_DIR),'dividend_trade_history.csv')
 
@@ -51,54 +51,50 @@ def identify_clusters(macd_vals):
 
 def check_long(df,idx,clusters,green_clusters):
     macd_b=df['MACD'].iloc[idx]
-    if macd_b>=0: return False,'非绿柱',0
+    if macd_b>=0: return False,'',0
     cl=None
     for c in clusters:
         if c['start']<=idx<=c['end'] and c['color']=='green': cl=c;break
-    if cl is None: return False,'无簇',0
-    if idx-cl['start']<5: return False,'前5根',0
+    if cl is None: return False,'',0
+    if idx-cl['start']<5: return False,'',0
     idx_a=idx-1;macd_a=df['MACD'].iloc[idx_a]
-    if abs(macd_a)<=abs(macd_b): return False,'柱未缩小',0
+    if abs(macd_a)<=abs(macd_b): return False,'',0
     dif_b=df['DIF'].iloc[idx];dea_b=df['DEA'].iloc[idx]
-    if dif_b>=0: return False,'DIF>=0',0
-    if abs(dif_b)<=abs(macd_b)*0.50: return False,'DIF不够深',0
-    if abs(dea_b)<=abs(macd_b)*0.30: return False,'DEA不够深',0
+    if dif_b>=0: return False,'',0
+    if abs(dif_b)<=abs(macd_b)*0.50: return False,'',0
+    if abs(dea_b)<=abs(macd_b)*0.30: return False,'',0
     has_gc=False
     for j in range(idx_a,idx+1):
         if df['golden'].iloc[j]: has_gc=True
     if has_gc: return True,'金叉入场',float(df['close'].iloc[idx])
     o=df['open'].iloc[idx];h=df['high'].iloc[idx];l=df['low'].iloc[idx];c2=df['close'].iloc[idx]
     amp=(h-l)/o if o>0 else 0
-    if abs(c2-o)/o<0.003 and amp<0.03: return False,'小实体',0
+    if abs(c2-o)/o<0.003 and amp<0.03: return False,'',0
     gm90=df['green90'].iloc[idx]
     if not pd.isna(gm90) and gm90>0:
         cluster_max=np.abs(df['MACD'].iloc[cl['start']:cl['end']+1]).max()
-        if cluster_max<=gm90*0.5 and abs(macd_b)<gm90*0.3: return False,'柱太小',0
+        if cluster_max<=gm90*0.5 and abs(macd_b)<gm90*0.3: return False,'',0
     close_b=c2;high_a=df['high'].iloc[idx_a]
-    if close_b<=high_a*1.003: return False,'价格未突破',0
+    if close_b<=high_a*1.003: return False,'',0
     return True,'绿柱入场',close_b
 
 def check_short(df,idx,clusters):
     macd_b=df['MACD'].iloc[idx]
-    if macd_b<=0: return False,'非红柱',0
+    if macd_b<=0: return False,'',0
     cl=None
     for c in clusters:
         if c['start']<=idx<=c['end'] and c['color']=='red': cl=c;break
-    if cl is None: return False,'无簇',0
+    if cl is None: return False,'',0
     idx_a=idx-1;macd_a=df['MACD'].iloc[idx_a]
-    if macd_a<=macd_b: return False,'柱未缩小',0
+    if macd_a<=macd_b: return False,'',0
     dif_b=df['DIF'].iloc[idx]
-    if dif_b<=0: return False,'DIF<=0',0
-    if dif_b<=abs(macd_b)*0.75: return False,'DIF不够高',0
-    has_dc=False
-    for j in range(idx_a,idx+1):
-        if df['death'].iloc[j]: has_dc=True
-    if has_dc: return False,'死叉中止',0
+    if dif_b<=0: return False,'',0
+    if dif_b<=abs(macd_b)*0.75: return False,'',0
     o=df['open'].iloc[idx];c2=df['close'].iloc[idx];h=df['high'].iloc[idx];l=df['low'].iloc[idx]
     amp=(h-l)/o if o>0 else 0
-    if abs(c2-o)/o<0.003 and amp<0.03: return False,'小实体',0
+    if abs(c2-o)/o<0.003 and amp<0.03: return False,'',0
     close_b=c2;low_a=df['low'].iloc[idx_a]
-    if close_b>=low_a*0.999: return False,'价格未跌破',0
+    if close_b>=low_a*0.999: return False,'',0
     return True,'红柱止盈',close_b
 
 def gs2(df,pos):
@@ -123,7 +119,7 @@ def main():
     macd_vals=df['MACD'].values;clusters=identify_clusters(macd_vals)
     green_clusters=[c for c in clusters if c['color']=='green']
     close=df['close'].values;ma=df['MA250'].values;n=len(df)
-    pos={'cash':1_000_000,'base':0,'swing':0,'in_base':False,'entry_price':0,'peak':0,'swing_mode':False,'gc_available':False,'swing_entry':0,'last_action':''}
+    pos={'cash':1_000_000,'base':0,'swing':0,'in_base':False,'entry_price':0,'peak':0,'swing_mode':False,'gc_available':False,'swing_entry':0}
     if args.trade and os.path.exists(HF):
         hist=pd.read_csv(HF)
         for _,r2 in hist.iterrows():
@@ -131,7 +127,6 @@ def main():
             if a=='买入' and '底仓' in reason: pos['in_base']=True;pos['entry_price']=r2['price'];pos['base']=r2['shares']
             elif a=='买入' and '波段' in reason: pos['swing_mode']=True;pos['swing']=r2['shares'];pos['swing_entry']=r2['price']
             elif a=='卖出': pos['in_base']=False;pos['base']=0;pos['swing']=0;pos['swing_mode']=False
-            pos['last_action']=a
     sig={'action':'持有','reason':'监控中'}
     ch=30
     for i in range(max(1,n-ch),n):
@@ -147,7 +142,7 @@ def main():
         if pos['in_base'] and not pos['swing_mode']:
             ok,reason,entry_p=check_long(df,i,clusters,green_clusters)
             if ok and pos['base']>0:
-                swing_shares=(pos['base']//100)*100;swing_shares=max(100,swing_shares)
+                swing_shares=pos['base'];swing_shares=(swing_shares//100)*100;swing_shares=max(100,swing_shares)
                 if swing_shares>=100:
                     bp=entry_p*(1+SLIP);val=bp*swing_shares;cost=val+max(val*COMM,5)
                     if cost<=pos['cash']: pos['cash']-=cost;pos['swing']=swing_shares;pos['swing_mode']=True;pos['swing_entry']=bp
@@ -168,16 +163,15 @@ def main():
     today=datetime.now().strftime('%Y-%m-%d')
     act=sig.get('action','持有')
     if act in ('买入','卖出') and sig.get('date','')!=today: act='持有';sig['reason']='监控中'
-    line=act+' | '+sig.get('reason','-')
-    if act in ('买入','卖出'): line+=' | '+str(sig.get('price','?'))+' | '+str(sig.get('shares','?'))+'股'
-    if sig.get('ret') is not None: line+=' | '+format(sig['ret'],'+.2f')+'%'
-    print(line)
+    # Table format
+    status='持仓中' if st['base']>0 else '空仓'
+    advice=act if act!='持有' else '无操作'
+    reason=sig.get('reason','-')
+    print('红利    '+status+'  '+advice+'  '+reason)
     if st['base']>0:
         dd_val=(st['close']-pos.get('entry_price',st['close']))/pos.get('entry_price',st['close'])*100
-        print('持仓 | 底仓='+format(int(st['base']),',')+'股 波段='+format(int(st['swing']),',')+'股 回撤'+format(dd_val,'+.1f')+'% | 资产'+format(int(st['tv']),','))
-    else:
-        print('空仓 | 资产'+format(int(st['tv']),','))
-    print('收盘='+format(st['close'],'.2f')+' 年线='+format(st['MA250'],'.2f')+' DIF='+format(st['DIF'],'.4f')+' MACD='+format(st['MACD'],'.4f'))
+        print('  底仓'+format(int(st['base']),',')+'股 波段'+format(int(st['swing']),',')+'股 回撤'+format(dd_val,'+.1f')+'%')
+    print('  资产'+format(int(st['tv']),',')+' 收盘='+format(st['close'],'.2f')+' 年线='+format(st['MA250'],'.2f')+' DIF='+format(st['DIF'],'.4f')+' MACD='+format(st['MACD'],'.4f'))
     if args.trade and act in ('买入','卖出'): lt2(sig)
 
 if __name__=='__main__': main()
