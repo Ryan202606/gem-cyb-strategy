@@ -21,6 +21,7 @@ SCRIPT_DIR=os.path.dirname(os.path.abspath(__file__))
 HF=os.path.join(os.path.dirname(SCRIPT_DIR),'trade_history.csv')
 
 def fd(days=400):
+    import logging;logging.getLogger('baostock').setLevel(logging.ERROR)
     lg=bs.login();end=datetime.now();start=end-timedelta(days=days)
     rs=bs.query_history_k_data_plus(SYMBOL,'date,open,high,low,close,volume,amount',start_date=start.strftime('%Y-%m-%d'),end_date=end.strftime('%Y-%m-%d'),frequency='d',adjustflag='1')
     df=rs.get_data() if rs and rs.error_code=='0' else pd.DataFrame();bs.logout()
@@ -121,8 +122,6 @@ def main():
     args=p.parse_args()
     if args.history: sh();return
 
-    print(datetime.now().strftime('%Y-%m-%d %H:%M')+'  '+NAME+'混合策略')
-    print('数据加载中...')
     df=fd(400)
     if len(df)==0: print('数据加载失败');return
     df=ci(df);tracker=PT()
