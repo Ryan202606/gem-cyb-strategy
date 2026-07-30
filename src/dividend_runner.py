@@ -202,34 +202,20 @@ def main():
             pos['base']=0;pos['swing']=0;pos['in_base']=False;pos['swing_mode']=False
 
     st=gs2(df,pos)
-    print('')
-    print('='*50)
-    print('  '+NAME+' MACD波段策略 - 每日信号')
-    print('='*50)
-    print('  日期: '+st['date']+'  收盘: '+format(st['close'],'.2f')+'  MA250: '+format(st['MA250'],'.2f'))
-    print('  年线上方: '+('是' if st['am'] else '否')+'  DIF: '+format(st['DIF'],'.4f')+'  DEA: '+format(st['DEA'],'.4f')+'  MACD: '+format(st['MACD'],'.4f'))
-
-    if st['base']>0:
-        dd_val=(st['close']-pos.get('entry_price',st['close']))/pos.get('entry_price',st['close'])*100
-        print('')
-        print('  [当前持仓]')
-        print('  底仓: '+format(int(st['base']),',')+'股  波段: '+format(int(st['swing']),',')+'股')
-        print('  入场价: '+format(pos.get('entry_price',0),'.3f')+'  回撤: '+format(dd_val,'+.1f')+'%')
-        print('  持仓市值: '+format(int((st['base']+st['swing'])*st['close']),',')+'  总资产: '+format(int(st['tv']),','))
-    else:
-        print('')
-        print('  [空仓等待]')
-        print('  总资产: '+format(int(st['tv']),','))
-
     today=datetime.now().strftime('%Y-%m-%d')
     act=sig.get('action','HOLD')
     if act in ('BUY','SELL') and sig.get('date','')!=today: act='HOLD';sig['reason']='监控中'
-    rmap={'BUY':'买入','SELL':'卖出','HOLD':'持有'}
     print('')
-    print('  >>> 操作: '+rmap.get(act,act)+' | '+sig.get('reason','-'))
-    if act in ('BUY','SELL'):
-        print('  >>> 价格: '+str(sig.get('price','?'))+'  份额: '+str(sig.get('shares','?'))+'  金额: '+str(sig.get('amount','?')))
-        if sig.get('ret') is not None: print('  >>> 收益: '+format(sig['ret'],'+.2f')+'%')
+    line=act+' | '+sig.get('reason','-')
+    if act in ('BUY','SELL'): line+=' | '+str(sig.get('price','?'))+' | '+str(sig.get('shares','?'))+'sh'
+    if sig.get('ret') is not None: line+=' | '+format(sig['ret'],'+.2f')+'%'
+    print(line)
+    if st['base']>0:
+        dd_val=(st['close']-pos.get('entry_price',st['close']))/pos.get('entry_price',st['close'])*100
+        print('HOLD | base='+format(int(st['base']),',')+' swing='+format(int(st['swing']),',')+' DD='+format(dd_val,'+.1f')+'% | '+format(int(st['tv']),','))
+    else:
+        print('OUT | '+format(int(st['tv']),','))
+    print('close='+format(st['close'],'.2f')+' MA250='+format(st['MA250'],'.2f')+' DIF='+format(st['DIF'],'.4f')+' MACD='+format(st['MACD'],'.4f'))
 
     if args.trade and act in ('BUY','SELL'):
         lt2(sig);print('');print('  [已记录]')
