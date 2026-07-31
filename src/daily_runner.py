@@ -5,7 +5,7 @@ from datetime import datetime,timedelta
 if sys.stdout.encoding!='utf-8': sys.stdout=io.TextIOWrapper(sys.stdout.buffer,encoding='utf-8',errors='replace')
 import baostock as bs,pandas as pd,numpy as np
 if not hasattr(pd.DataFrame,'append'): pd.DataFrame.append=lambda s,o,**kw:pd.concat([s,o],ignore_index=kw.get('ignore_index',False))
-AREA=2000;LONG_C=14;SHORT_C=1;GC_C=0;VP=150;VM=1.8
+AREA=2000;LONG_C=14;SHORT_C=1;GC_C=0;VP=150;VM=1.8;SELL_BUF=7
 COMM=0.0003;STAMP=0.0005;SLIP=0.001
 SYMBOL='sz.399006'
 SCRIPT_DIR=os.path.dirname(os.path.abspath(__file__))
@@ -63,7 +63,7 @@ def cs(df,t):
                 ls={'date':ds,'action':'卖出','price':round(sp,4),'reason':'面积止盈','shares':t.sh,'amount':round(val,2),'ret':round(ret,2)}
                 t.im=False;t.sh=0;t.reset('golden')
             t.ps=0 if am else t.ps+1
-            if t.ps==1 and amp:
+            if t.ps>SELL_BUF:
                 sp=p*(1-SLIP);val=sp*t.sh;t.cash+=val-max(val*COMM,5)-val*STAMP
                 ret=(sp-t.ep)/t.ep*100
                 ls={'date':ds,'action':'卖出','price':round(sp,4),'reason':'跌破年线','shares':t.sh,'amount':round(val,2),'ret':round(ret,2)}
@@ -94,7 +94,7 @@ def cs(df,t):
 
 def gs(df,t):
     last=df.iloc[-1]
-    return {'date':str(last['date'])[:10],'close':float(last['close']),'MA250':float(last['MA250']),'DIF':float(last['DIF']),'am':float(last['close'])>float(last['MA250']),'im':t.im,'da':t.da,'ep':t.ep if t.im else 0,'pp':t.pp if t.im else 0,'pv':round(t.sh*float(last['close']),2) if t.im else 0,'tv':round(t.cash+(t.sh*float(last['close']) if t.im else 0),2)}
+    return {'date':str(last['date'])[:10],'close':float(last['close']),'MA250':float(last['MA250']),'DIF':float(last['DIF']),'am':float(last['close'])>float(last['MA250']),'im':t.im,'da':t.da,'ps':t.ps,'ep':t.ep if t.im else 0,'pp':t.pp if t.im else 0,'pv':round(t.sh*float(last['close']),2) if t.im else 0,'tv':round(t.cash+(t.sh*float(last['close']) if t.im else 0),2)}
 
 def lt(sig):
     fe=os.path.exists(HF)
@@ -125,18 +125,18 @@ def main():
     today=datetime.now().strftime('%Y-%m-%d')
     act=sig.get('action','持有')
     if act in ('买入','卖出') and sig.get('date','')!=today: act='持有';sig['reason']='持仓中' if st['im'] else '等待信号'
-    # Summary line
+    # Summary
     status='持仓中' if st['im'] else '空仓'
     advice=act if act!='持有' else '无操作'
     reason=sig.get('reason','-')
     print('创业板-----'+status+'-----'+advice+'-----'+reason)
-    # Details, one per line
     if st['im']:
         dd=(st['close']-st['pp'])/st['pp']*100 if st['pp']>0 else 0
         print('  入场: '+format(st['ep'],'.2f'))
         print('  现价: '+format(st['close'],'.2f'))
         print('  回撤: '+format(dd,'+.2f')+'%')
         print('  市值: '+format(int(st['pv']),','))
+        if st['ps']>0: print('  跌破年线已'+str(st['ps'])+'天(需>7天触发卖出)')
     print('  资产: '+format(int(st['tv']),','))
     print('  收盘: '+format(st['close'],'.2f'))
     print('  年线: '+format(st['MA250'],'.2f'))
