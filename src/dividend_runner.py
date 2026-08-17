@@ -328,70 +328,66 @@ def main():
     green_clusters = [c for c in clusters if c['color'] == 'green']
 
     # ── 状态变量 ──
-    cash = INITIAL_CAPITAL
+    # 每日运行: 默认空仓持有现金(WAITING_BUY), 等绿柱/金叉入场信号。
+    # 不做"Day1自动全仓买入"——那是回测专属起点, 每日脚本若自动建仓会在
+    # 每次运行都重放最近60天, 产生虚假的"持仓"状态。
+    cash = 0.0
     base_shares = 0
-    base_established = False
     swing_shares = 0
     swing_entry_price = 0.0
     swing_peak = 0.0
     swing_entry_idx = 0
-    swing_cash = 0.0
-    state = STATE_HOLDING_BASE
-    golden_chase_active = False
+    swing_cash = INITIAL_CAPITAL
+    state = STATE_WAITING_BUY
+    golden_chase_active = True
     golden_chase_used = False
 
     # ── 从历史恢复状态 ──
-    last_trade_date = None
+    last_trade_date = None  # track last trade date for forward scanning
     if args.trade and os.path.exists(HF):
         hist = pd.read_csv(HF)
-        old_actions = set(hist['action'].values)
-        if '清仓' in old_actions or 'BUY' in old_actions or 'SELL' in old_actions or 'HOLD' in old_actions:
-            old_hf = HF.replace('.csv', '_old.csv')
-            os.rename(HF, old_hf)
-            print(f'[迁移] 旧策略历史已归档: {old_hf}')
-        else:
-            for _, r in hist.iterrows():
-                action = str(r['action'])
-                reason = str(r.get('reason', ''))
-                last_trade_date = str(r.get('sig_date', ''))[:10]
-                if action == '买入':
-                    if '初始建仓' in reason:
-                        base_shares = int(r['shares'])
-                        base_established = True
-                        state = STATE_HOLDING_BASE
-                        bp = float(r['price'])
-                        _, cost = calc_buy_cost(bp, base_shares)
-                        cash = INITIAL_CAPITAL - cost
-                    elif '金叉' in reason or '绿柱' in reason:
-                        swing_shares = int(r['shares'])
-                        swing_entry_price = float(r['price'])
-                        swing_peak = swing_entry_price
-                        swing_cash = 0.0
-                        state = STATE_HOLDING_SWING
-                        golden_chase_active = False
-                        golden_chase_used = '金叉' in reason
-                elif action == '卖出':
-                    if '死叉' in reason:
-                        base_shares = 0
-                        swing_cash = float(r['amount'])
-                        state = STATE_WAITING_BUY
-                        golden_chase_active = True
-                        golden_chase_used = False
-                    elif '止盈' in reason or '兜底' in reason:
-                        swing_shares = 0
-                        swing_entry_price = 0
-                        swing_peak = 0
-                        swing_entry_idx = 0
-                        swing_cash += float(r['amount'])
-                        state = STATE_WAITING_BUY
-                        golden_chase_active = True
-                        golden_chase_used = False
+        for _, r in hist.iterrows():
+            action = str(r['action']).strip()
+            reason = str(r.get('reason', '')).strip()
+            d = str(r.get('sig_date', ''))[:10]
+            if d:
+                last_trade_date = d
+            if action == '买入':
+                if '金叉' in reason or '绿柱' in reason:
+                    swing_shares = int(r['shares'])
+                    swing_entry_price = float(r['price'])
+                    swing_peak = swing_entry_price
+                    swing_cash = 0.0
+                    state = STATE_HOLDING_SWING
+                    golden_chase_active = False
+                    golden_chase_used = '金叉' in reason
+            elif action == '卖出':
+                if '清仓' in reason:
+                    # 旧策略清仓 → 空仓(等入场); 不改变新策略基准资金
+                    swing_shares = 0
+                    swing_entry_price = 0
+                    swing_peak = 0
+                    swing_entry_idx = 0
+                    state = STATE_WAITING_BUY
+                    golden_chase_active = True
+                    golden_chase_used = False
+                elif '止盈' in reason or '兜底' in reason:
+                    swing_shares = 0
+                    swing_entry_price = 0
+                    swing_peak = 0
+                    swing_entry_idx = 0
+                    swing_cash += float(r['amount'])
+                    state = STATE_WAITING_BUY
+                    golden_chase_active = True
+                    golden_chase_used = False
+            # 旧策略英文动作(BUY/SELL/HOLD) 或未知动作 → 忽略
 
     # ── 确定扫描起点 ──
     sig = {'action': '持有', 'reason': '监控中'}
     ch = min(60, n)
     today_str = datetime.now().strftime('%Y-%m-%d')
 
+    # If we restored from history, only scan from after the last trade
     scan_start = max(1, n - ch)
     if last_trade_date:
         for i in range(n):
@@ -403,7 +399,7 @@ def main():
         price = float(close[i])
         ds = str(df['date'].iloc[i])[:10]
         if ds > today_str:
-            continue
+            continue  # skip future dates
 
         # ── 安全兜底检查 (HOLDING_SWING) ──
         if state == STATE_HOLDING_SWING and swing_shares > 0:
@@ -423,53 +419,13 @@ def main():
                 continue
 
         # ================================================================
-        # Day 1: 初始建仓
+        # WAITING_BUY: 等入场信号 (空仓持有现金)
         # ================================================================
-        if not base_established and price > 0:
-            bp = price * (1 + SLIP) if SLIP > 0 else price
-            shares = int(cash / bp / 100) * 100
-            comm, cost = calc_buy_cost(bp, shares)
-            while cost > cash and shares >= 200:
-                shares -= 100
-                comm, cost = calc_buy_cost(bp, shares)
-            if shares >= 100 and cost <= cash:
-                cash -= cost
-                base_shares = shares
-                base_established = True
-                state = STATE_HOLDING_BASE
-                sig = {'date': ds, 'action': '买入', 'price': round(bp, 3), 'reason': '初始建仓',
-                       'shares': shares, 'amount': round(bp * shares, 2)}
-                continue
-
-        if not base_established:
-            continue
-
-        # ================================================================
-        # HOLDING_BASE: 等死叉 → 卖底仓
-        # ================================================================
-        if state == STATE_HOLDING_BASE:
-            if df['death_cross'].iloc[i] and base_shares > 0:
-                sell_shares = int(base_shares * SWING_PCT / 100) * 100
-                if sell_shares >= 100:
-                    sp = price * (1 - SLIP) if SLIP > 0 else price
-                    sc, ss, proceeds = calc_sell_proceeds(sp, sell_shares)
-                    swing_cash += proceeds
-                    base_shares -= sell_shares
-                    sig = {'date': ds, 'action': '卖出', 'price': round(sp, 3), 'reason': '死叉卖出底仓',
-                           'shares': sell_shares, 'amount': round(proceeds, 2)}
-                    state = STATE_WAITING_BUY
-                    golden_chase_active = True
-                    golden_chase_used = False
-                    continue
-
-        # ================================================================
-        # WAITING_BUY: 等入场信号
-        # ================================================================
-        elif state == STATE_WAITING_BUY:
+        if state == STATE_WAITING_BUY:
             if swing_cash <= 0:
-                state = STATE_HOLDING_BASE
                 continue
 
+            # 水上金叉追入条件检查: 需要DIF>0且DEA>0
             if golden_chase_active and not golden_chase_used:
                 if df['DIF'].iloc[i] < 0 or df['DEA'].iloc[i] < 0:
                     golden_chase_active = False
@@ -551,7 +507,7 @@ def main():
                 state = STATE_WAITING_BUY
                 continue
 
-        # ── 闲置资金按国债利率每日生息 ──
+        # ── 闲置资金(swing_cash)按国债利率每日生息 ──
         if swing_cash > 0 and IDLE_CASH_RATE > 0:
             daily_rate = (1 + IDLE_CASH_RATE) ** (1/252) - 1
             swing_cash *= (1 + daily_rate)
@@ -564,6 +520,7 @@ def main():
     last_dea = float(last['DEA'])
     last_macd = float(last['MACD'])
 
+    # 当前权益
     holdings_val = (base_shares + swing_shares) * last_close
     total_equity = cash + swing_cash + holdings_val
 
@@ -572,7 +529,8 @@ def main():
         act = '持有'
         sig['reason'] = '监控中'
 
-    status_map = {STATE_HOLDING_BASE: '持仓(底仓)', STATE_WAITING_BUY: '等入场', STATE_HOLDING_SWING: '持仓(波段)'}
+    # Summary output
+    status_map = {STATE_WAITING_BUY: '空仓(等入场)', STATE_HOLDING_SWING: '持仓(波段)'}
     status = status_map.get(state, '空仓')
     advice = act if act != '持有' else '无操作'
     reason = sig.get('reason', '-')
@@ -588,7 +546,7 @@ def main():
         print(f'  回撤: {dd_val:+.2f}%')
         print(f'  持仓天数: {hold_days}天')
     if swing_cash > 0:
-        print(f'  等待现金: {swing_cash:,.0f}')
+        print(f'  可用现金: {swing_cash:,.0f}')
     print(f'  总资产: {total_equity:,.0f}')
     print(f'  收盘: {last_close:.3f}')
     print(f'  年线: {last_ma250:.3f}')
@@ -598,6 +556,7 @@ def main():
     print(f'  死叉信号: {"是" if last["death_cross"] else "否"}')
     print(f'  金叉信号: {"是" if last["golden_cross"] else "否"}')
 
+    # 金叉追入状态
     if state == STATE_WAITING_BUY and golden_chase_active and not golden_chase_used:
         print(f'  金叉追入: 待命中 (DIF>0 & DEA>0 时激活)')
     elif state == STATE_WAITING_BUY and golden_chase_active and golden_chase_used:
