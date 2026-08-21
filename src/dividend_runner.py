@@ -57,6 +57,20 @@ def load_data(days=800):
     except:
         pass
     if df is None or len(df) < 500:
+        # 新浪直连兜底(无需代理, 可拉到最新日线), 避免efinance失败时用陈旧CSV
+        try:
+            import urllib.request, json as _json
+            _url = 'https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=sh510880&scale=240&ma=no&datalen=800'
+            _req = urllib.request.Request(_url, headers={'User-Agent': 'Mozilla/5.0'})
+            _data = _json.loads(urllib.request.urlopen(_req, timeout=15).read())
+            df = pd.DataFrame(_data).rename(columns={'day': 'date'})
+            for _c in ['open', 'high', 'low', 'close', 'volume']:
+                df[_c] = pd.to_numeric(df[_c], errors='coerce')
+            df['volume'] = df['volume'] / 100  # 股 → 手
+            df['amount'] = df['close'] * df['volume'] * 100  # 近似成交额
+        except Exception:
+            df = None
+    if df is None or len(df) < 500:
         csv_path = os.path.join(SCRIPT_DIR, '510880.csv')
         if os.path.exists(csv_path):
             df = pd.read_csv(csv_path)
@@ -361,6 +375,11 @@ def main():
                     state = STATE_HOLDING_SWING
                     golden_chase_active = False
                     golden_chase_used = '金叉' in reason
+                    # 找回入场日对应的K线索引, 供安全兜底持仓天数与展示使用
+                    for _j in range(n):
+                        if str(df['date'].iloc[_j])[:10] == d:
+                            swing_entry_idx = _j
+                            break
             elif action == '卖出':
                 if '清仓' in reason:
                     # 旧策略清仓 → 空仓(等入场); 不改变新策略基准资金
@@ -382,130 +401,108 @@ def main():
                     golden_chase_used = False
             # 旧策略英文动作(BUY/SELL/HOLD) 或未知动作 → 忽略
 
-    # ── 确定扫描起点 ──
+    # ── 只检查最新一天 ──
+    # 每日运行: 不重放最近60天(那会在数据滞后时把过去信号当成"今天"并反复重建
+    # 虚假持仓)。状态从历史记录恢复, 只需看最新一根K线是否有今日信号。
     sig = {'action': '持有', 'reason': '监控中'}
-    ch = min(60, n)
     today_str = datetime.now().strftime('%Y-%m-%d')
 
-    # If we restored from history, only scan from after the last trade
-    scan_start = max(1, n - ch)
-    if last_trade_date:
-        for i in range(n):
-            if str(df['date'].iloc[i])[:10] > last_trade_date:
-                scan_start = i
-                break
+    i = n - 1
+    price = float(close[i])
+    ds = str(df['date'].iloc[i])[:10]
 
-    for i in range(scan_start, n):
-        price = float(close[i])
-        ds = str(df['date'].iloc[i])[:10]
-        if ds > today_str:
-            continue  # skip future dates
-
-        # ── 安全兜底检查 (HOLDING_SWING) ──
-        if state == STATE_HOLDING_SWING and swing_shares > 0:
-            if price > swing_peak:
-                swing_peak = price
-            hold_days = i - swing_entry_idx
-            if hold_days > 252 and swing_peak > 0 and (price - swing_peak) / swing_peak <= -STOP_LOSS:
-                sp = price * (1 - SLIP) if SLIP > 0 else price
-                sc, ss, proceeds = calc_sell_proceeds(sp, swing_shares)
-                swing_cash += proceeds
-                ret = (sp - swing_entry_price) / swing_entry_price * 100
-                sig = {'date': ds, 'action': '卖出', 'price': round(sp, 3), 'reason': f'安全兜底(持仓{hold_days}天回撤{(price-swing_peak)/swing_peak*100:.1f}%)',
-                       'shares': swing_shares, 'amount': round(proceeds, 2), 'ret': round(ret, 2)}
-                swing_shares = 0; swing_entry_price = 0; swing_peak = 0; swing_entry_idx = 0
-                golden_chase_active = True; golden_chase_used = False
+    if ds <= today_str:  # 数据不超前于今天才处理
+        if state == STATE_HOLDING_SWING:
+            if swing_shares > 0:
+                # ── 安全兜底 / 红柱止盈 ──
+                if price > swing_peak:
+                    swing_peak = price
+                hold_days = i - swing_entry_idx
+                safety_triggered = hold_days > 252 and swing_peak > 0 and (price - swing_peak) / swing_peak <= -STOP_LOSS
+                if safety_triggered:
+                    sp = price * (1 - SLIP) if SLIP > 0 else price
+                    sc, ss, proceeds = calc_sell_proceeds(sp, swing_shares)
+                    swing_cash += proceeds
+                    ret = (sp - swing_entry_price) / swing_entry_price * 100
+                    sig = {'date': ds, 'action': '卖出', 'price': round(sp, 3), 'reason': f'安全兜底(持仓{hold_days}天回撤{(price-swing_peak)/swing_peak*100:.1f}%)',
+                           'shares': swing_shares, 'amount': round(proceeds, 2), 'ret': round(ret, 2)}
+                    swing_shares = 0; swing_entry_price = 0; swing_peak = 0; swing_entry_idx = 0
+                    golden_chase_active = True; golden_chase_used = False
+                    state = STATE_WAITING_BUY
+                else:
+                    triggered, reason, exit_p = check_short_exit(df, i, clusters)
+                    if triggered:
+                        sp = exit_p * (1 - SLIP) if SLIP > 0 else exit_p
+                        sc, ss, proceeds = calc_sell_proceeds(sp, swing_shares)
+                        swing_cash += proceeds
+                        ret = (sp - swing_entry_price) / swing_entry_price * 100
+                        sig = {'date': ds, 'action': '卖出', 'price': round(sp, 3),
+                               'reason': f'红柱止盈:{reason}', 'shares': swing_shares,
+                               'amount': round(proceeds, 2), 'ret': round(ret, 2)}
+                        swing_shares = 0; swing_entry_price = 0; swing_peak = 0; swing_entry_idx = 0
+                        golden_chase_active = True; golden_chase_used = False
+                        state = STATE_WAITING_BUY
+            else:
                 state = STATE_WAITING_BUY
-                continue
 
-        # ================================================================
-        # WAITING_BUY: 等入场信号 (空仓持有现金)
-        # ================================================================
-        if state == STATE_WAITING_BUY:
-            if swing_cash <= 0:
-                continue
+        elif state == STATE_WAITING_BUY:
+            if swing_cash > 0:
+                # 水上金叉追入条件检查: 需要DIF>0且DEA>0
+                if golden_chase_active and not golden_chase_used:
+                    if df['DIF'].iloc[i] < 0 or df['DEA'].iloc[i] < 0:
+                        golden_chase_active = False
 
-            # 水上金叉追入条件检查: 需要DIF>0且DEA>0
-            if golden_chase_active and not golden_chase_used:
-                if df['DIF'].iloc[i] < 0 or df['DEA'].iloc[i] < 0:
-                    golden_chase_active = False
+                bought = False
 
-            bought = False
-
-            # 优先1: 水上金叉追入
-            if golden_chase_active and not golden_chase_used:
-                triggered, reason, entry_p = check_golden_chase_entry(df, i)
-                if triggered:
-                    bp = entry_p * (1 + SLIP) if SLIP > 0 else entry_p
-                    buy_shares = int(swing_cash * SWING_BUY_PCT / bp / 100) * 100
-                    if buy_shares >= 100:
-                        comm, cost = calc_buy_cost(bp, buy_shares)
-                        while cost > swing_cash and buy_shares >= 200:
-                            buy_shares -= 100
+                # 优先1: 水上金叉追入
+                if golden_chase_active and not golden_chase_used:
+                    triggered, reason, entry_p = check_golden_chase_entry(df, i)
+                    if triggered:
+                        bp = entry_p * (1 + SLIP) if SLIP > 0 else entry_p
+                        buy_shares = int(swing_cash * SWING_BUY_PCT / bp / 100) * 100
+                        if buy_shares >= 100:
                             comm, cost = calc_buy_cost(bp, buy_shares)
-                        if cost <= swing_cash:
-                            swing_cash -= cost
-                            swing_shares = buy_shares
-                            swing_entry_price = bp
-                            swing_peak = bp
-                            swing_entry_idx = i
-                            sig = {'date': ds, 'action': '买入', 'price': round(bp, 3),
-                                   'reason': f'水上金叉追入:{reason}', 'shares': buy_shares,
-                                   'amount': round(bp * buy_shares, 2)}
-                            golden_chase_used = True
-                            golden_chase_active = False
-                            state = STATE_HOLDING_SWING
-                            bought = True
+                            while cost > swing_cash and buy_shares >= 200:
+                                buy_shares -= 100
+                                comm, cost = calc_buy_cost(bp, buy_shares)
+                            if cost <= swing_cash:
+                                swing_cash -= cost
+                                swing_shares = buy_shares
+                                swing_entry_price = bp
+                                swing_peak = bp
+                                swing_entry_idx = i
+                                sig = {'date': ds, 'action': '买入', 'price': round(bp, 3),
+                                       'reason': f'水上金叉追入:{reason}', 'shares': buy_shares,
+                                       'amount': round(bp * buy_shares, 2)}
+                                golden_chase_used = True
+                                golden_chase_active = False
+                                state = STATE_HOLDING_SWING
+                                bought = True
 
-            # 优先2: 绿柱5条件入场
-            if not bought:
-                triggered, reason, entry_p = check_long_entry(df, i, clusters, green_clusters)
-                if triggered:
-                    bp = entry_p * (1 + SLIP) if SLIP > 0 else entry_p
-                    buy_shares = int(swing_cash * SWING_BUY_PCT / bp / 100) * 100
-                    if buy_shares >= 100:
-                        comm, cost = calc_buy_cost(bp, buy_shares)
-                        while cost > swing_cash and buy_shares >= 200:
-                            buy_shares -= 100
+                # 优先2: 绿柱5条件入场
+                if not bought:
+                    triggered, reason, entry_p = check_long_entry(df, i, clusters, green_clusters)
+                    if triggered:
+                        bp = entry_p * (1 + SLIP) if SLIP > 0 else entry_p
+                        buy_shares = int(swing_cash * SWING_BUY_PCT / bp / 100) * 100
+                        if buy_shares >= 100:
                             comm, cost = calc_buy_cost(bp, buy_shares)
-                        if cost <= swing_cash:
-                            swing_cash -= cost
-                            swing_shares = buy_shares
-                            swing_entry_price = bp
-                            swing_peak = bp
-                            swing_entry_idx = i
-                            sig = {'date': ds, 'action': '买入', 'price': round(bp, 3),
-                                   'reason': f'MACD绿柱入场:{reason}', 'shares': buy_shares,
-                                   'amount': round(bp * buy_shares, 2)}
-                            golden_chase_active = False
-                            golden_chase_used = False
-                            state = STATE_HOLDING_SWING
-                            bought = True
-
-        # ================================================================
-        # HOLDING_SWING: 等红柱止盈
-        # ================================================================
-        elif state == STATE_HOLDING_SWING:
-            if swing_shares <= 0:
-                state = STATE_WAITING_BUY
-                continue
-
-            if price > swing_peak:
-                swing_peak = price
-
-            triggered, reason, exit_p = check_short_exit(df, i, clusters)
-            if triggered:
-                sp = exit_p * (1 - SLIP) if SLIP > 0 else exit_p
-                sc, ss, proceeds = calc_sell_proceeds(sp, swing_shares)
-                swing_cash += proceeds
-                ret = (sp - swing_entry_price) / swing_entry_price * 100
-                sig = {'date': ds, 'action': '卖出', 'price': round(sp, 3),
-                       'reason': f'红柱止盈:{reason}', 'shares': swing_shares,
-                       'amount': round(proceeds, 2), 'ret': round(ret, 2)}
-                swing_shares = 0; swing_entry_price = 0; swing_peak = 0; swing_entry_idx = 0
-                golden_chase_active = True; golden_chase_used = False
-                state = STATE_WAITING_BUY
-                continue
+                            while cost > swing_cash and buy_shares >= 200:
+                                buy_shares -= 100
+                                comm, cost = calc_buy_cost(bp, buy_shares)
+                            if cost <= swing_cash:
+                                swing_cash -= cost
+                                swing_shares = buy_shares
+                                swing_entry_price = bp
+                                swing_peak = bp
+                                swing_entry_idx = i
+                                sig = {'date': ds, 'action': '买入', 'price': round(bp, 3),
+                                       'reason': f'MACD绿柱入场:{reason}', 'shares': buy_shares,
+                                       'amount': round(bp * buy_shares, 2)}
+                                golden_chase_active = False
+                                golden_chase_used = False
+                                state = STATE_HOLDING_SWING
+                                bought = True
 
         # ── 闲置资金(swing_cash)按国债利率每日生息 ──
         if swing_cash > 0 and IDLE_CASH_RATE > 0:
@@ -525,9 +522,6 @@ def main():
     total_equity = cash + swing_cash + holdings_val
 
     act = sig.get('action', '持有')
-    if act in ('买入', '卖出') and sig.get('date', '') != today_str:
-        act = '持有'
-        sig['reason'] = '监控中'
 
     # Summary output
     status_map = {STATE_WAITING_BUY: '空仓(等入场)', STATE_HOLDING_SWING: '持仓(波段)'}
