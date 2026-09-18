@@ -380,6 +380,10 @@ def main():
                         if str(df['date'].iloc[_j])[:10] == d:
                             swing_entry_idx = _j
                             break
+                    # 重算持仓期间真实最高价(peak): 修正回撤显示与安全兜底基准
+                    # (此前peak恢复时被重置为入场价, 丢掉历史高点, 导致回撤显示误导)
+                    if swing_entry_idx > 0:
+                        swing_peak = float(df['close'].iloc[swing_entry_idx:n].max())
             elif action == '卖出':
                 if '清仓' in reason:
                     # 旧策略清仓 → 空仓(等入场); 不改变新策略基准资金
