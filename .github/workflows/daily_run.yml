@@ -23,13 +23,41 @@ jobs:
           echo "[DIV]" >> ../output.txt
           python dividend_runner.py --trade >> ../output.txt 2>&1
       - run: cat output.txt
-      - uses: dawidd6/action-send-mail@v3
+      - name: Decide whether to send email
+        id: decide
+        run: |
+          # 提取「关键状态」行（排除每天都会变的数字），用于与上次运行比对
+          grep -E '^(创业板|红利\[)|死叉信号|金叉信号|金叉追入' output.txt > state_now.txt || true
+          CHANGED=false
+          if [ ! -f state_prev.txt ] || ! diff -q state_prev.txt state_now.txt > /dev/null; then
+            CHANGED=true
+          fi
+          ACTION=false
+          if grep -qE -- '-----买入-----|-----卖出-----' output.txt; then ACTION=true; fi
+          DOW=$(date +%u)
+          if [ "$ACTION" = "true" ]; then
+            SUBJECT="[Q] 交易信号"
+          elif [ "$CHANGED" = "true" ]; then
+            SUBJECT="[Q] 状态变化"
+          else
+            SUBJECT="[Q] 本周汇总"
+          fi
+          if [ "$CHANGED" = "true" ] || [ "$ACTION" = "true" ] || [ "$DOW" = "5" ]; then
+            echo "send=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "send=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "subject=$SUBJECT" >> "$GITHUB_OUTPUT"
+          echo "changed=$CHANGED action=$ACTION dow=$DOW subject=$SUBJECT"
+      - name: Send email
+        if: steps.decide.outputs.send == 'true'
+        uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.qq.com
           server_port: 587
           username: ${{ secrets.QQ_EMAIL }}
           password: ${{ secrets.QQ_SMTP_CODE }}
-          subject: "[Q] 每日信号"
+          subject: ${{ steps.decide.outputs.subject }}
           to: 1134230834@qq.com
           from: ${{ secrets.QQ_EMAIL }}
           body: file://output.txt
@@ -37,6 +65,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add trade_history.csv dividend_trade_history.csv
-          git commit -m "chore: update trade history" || echo "no changes to commit"
+          cp state_now.txt state_prev.txt
+          git add -f trade_history.csv dividend_trade_history.csv state_now.txt state_prev.txt
+          git commit -m "chore: update trade history & state" || echo "no changes to commit"
           git push || echo "push skipped"
