@@ -10,6 +10,9 @@ permissions:
 jobs:
   run:
     runs-on: ubuntu-latest
+    env:
+      # 抑制第三方库(efinance/pandas)的告警，避免写进 output.txt 混入邮件正文
+      PYTHONWARNINGS: ignore
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
